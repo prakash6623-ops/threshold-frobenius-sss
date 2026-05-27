@@ -1,0 +1,129 @@
+# Automorphism-Compatible Shamir Secret Sharing over F_{p^2}
+# Example over F_{49} as described in the paper
+# Author: Based on the paper by Tikaram, Adhikari, KC, Kumar, Pandey
+
+# ------------------------------------------------------------
+# 1. Define the field F_{49} = F_7[ω] / (ω^2 + 1)
+# ------------------------------------------------------------
+p = 7
+Fp = GF(p)
+R.<omega> = PolynomialRing(Fp)
+Fp2.<w> = Fp.extension(omega^2 + 1)   # w^2 = -1 ≡ 6 mod 7
+
+print("Field F_{49}:", Fp2)
+print("Characteristic:", Fp2.characteristic())
+print("Size:", Fp2.cardinality())
+
+# ------------------------------------------------------------
+# 2. Parameters of the threshold scheme
+# ------------------------------------------------------------
+t = 3          # threshold
+n = 5          # number of parties
+alphas = [Fp(i) for i in range(1, n+1)]   # evaluation points in prime subfield
+print("\nEvaluation points (in F_7):", alphas)
+
+# ------------------------------------------------------------
+# 3. Secret and random polynomial of degree t-1 = 2
+# ------------------------------------------------------------
+S = 1 + 2*w                     # secret in F_{49}
+coeffs = [S, w, 1 + w]          # constant, linear, quadratic coefficients
+R_poly.<x> = Fp2[]
+f = sum(coeffs[i] * x^i for i in range(len(coeffs)))
+print("\nSecret S =", S)
+print("Polynomial f(x) =", f)
+
+# ------------------------------------------------------------
+# 4. Compute shares
+# ------------------------------------------------------------
+shares = [(alpha, f(alpha)) for alpha in alphas]
+print("\nShares (alpha_i, s_i):")
+for alpha, s in shares:
+    print(f"  α = {alpha} → s = {s}")
+
+# ------------------------------------------------------------
+# 5. Reconstruction of S from any t shares (test)
+# ------------------------------------------------------------
+import itertools
+
+def lagrange_reconstruction(points, x0=0):
+    """
+    points: list of (x_i, y_i) with distinct x_i
+    Returns value at x0 (default 0) using Lagrange interpolation.
+    """
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    k = len(xs)
+    result = Fp2(0)
+    for j in range(k):
+        term = ys[j]
+        for m in range(k):
+            if m == j:
+                continue
+            term *= (x0 - xs[m]) / (xs[j] - xs[m])
+        result += term
+    return result
+
+# Test with first t shares
+test_shares = shares[:t]
+reconstructed_S = lagrange_reconstruction(test_shares)
+print(f"\nReconstruction from first {t} shares: {reconstructed_S}")
+assert reconstructed_S == S, "Reconstruction failed!"
+print("✓ Correctness verified.")
+
+# ------------------------------------------------------------
+# 6. Non-interactive Frobenius transformation
+# ------------------------------------------------------------
+# Frobenius map psi(a) = a^p
+def psi(a):
+    return a^p
+
+# Check that psi fixes the evaluation points (they are in Fp)
+for alpha in alphas:
+    assert psi(alpha) == alpha, "psi(alpha) != alpha"
+print("\n✓ Frobenius fixes all alpha_i (since they lie in F_p).")
+
+# Each party locally computes psi(s_i)
+transformed_shares = [(alpha, psi(s)) for (alpha, s) in shares]
+
+# Reconstruct psi(S) using the same Lagrange coefficients (unchanged points)
+reconstructed_psi_S = lagrange_reconstruction(transformed_shares[:t])
+print(f"\nReconstructed ψ(S) from transformed shares: {reconstructed_psi_S}")
+
+# Directly compute psi(S) for verification
+direct_psi_S = psi(S)
+print(f"Directly computed ψ(S): {direct_psi_S}")
+
+assert reconstructed_psi_S == direct_psi_S, "Non-interactive transformation failed!"
+print("✓ Non‑interactive Frobenius transformation works perfectly.")
+
+# ------------------------------------------------------------
+# 7. Verify that Lagrange coefficients are indeed identical
+#    (they depend only on the public alpha_i)
+# ------------------------------------------------------------
+def lagrange_coefficients(xs, x0=0):
+    """Return list of coefficients λ_j for interpolation at x0."""
+    k = len(xs)
+    coeffs = []
+    for j in range(k):
+        num = 1
+        den = 1
+        for m in range(k):
+            if m == j:
+                continue
+            num *= (x0 - xs[m])
+            den *= (xs[j] - xs[m])
+        coeffs.append(num / den)
+    return coeffs
+
+# Same set of xs (first t points)
+xs = [shares[i][0] for i in range(t)]
+lambdas = lagrange_coefficients(xs)
+print(f"\nLagrange coefficients for α's = {xs}: {lambdas}")
+
+# Check that psi(S) = Σ λ_j * psi(s_j)
+computed = sum(lambdas[j] * psi(shares[j][1]) for j in range(t))
+print(f"Σ λ_j * ψ(s_j) = {computed}")
+assert computed == direct_psi_S
+print("✓ Lagrange coefficients are unchanged and give correct ψ(S).")
+
+print("\nAll tests passed. The protocol works as described.")
